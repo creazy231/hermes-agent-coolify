@@ -1,0 +1,173 @@
+###############################################################################
+# Hermes Agent — Standalone Docker Compose for Coolify
+#
+# No git repo needed. The image is built from a Dockerfile that clones the
+# public repo at build time. Deploy in Coolify as a "Docker Compose" resource
+# and paste this file directly, or point to a repo containing just this file.
+#
+# Pin a specific commit/tag via HERMES_REF build arg.
+###############################################################################
+
+services:
+  hermes-gateway:
+    build:
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            git curl build-essential ripgrep ffmpeg \
+            && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+            && apt-get install -y --no-install-recommends nodejs \
+            && rm -rf /var/lib/apt/lists/*
+        RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+        WORKDIR /app
+        ARG HERMES_REF=main
+        RUN git clone --recurse-submodules --depth 1 --branch $${HERMES_REF} \
+            https://github.com/NousResearch/hermes-agent.git .
+        # Patch status.py: wrap systemctl call in try/except for containers
+        RUN echo 'aW1wb3J0IHBhdGhsaWIKcCA9IHBhdGhsaWIuUGF0aCgiaGVybWVzX2NsaS9zdGF0dXMucHkiKQppZiBub3QgcC5leGlzdHMoKToKICAgIHByaW50KCJTS0lQOiBub3QgZm91bmQiKTsgZXhpdCgwKQpzcmMgPSBwLnJlYWRfdGV4dCgpCm9sZCA9ICIiIiAgICBpZiBzeXMucGxhdGZvcm0uc3RhcnRzd2l0aCgnbGludXgnKToKICAgICAgICByZXN1bHQgPSBzdWJwcm9jZXNzLnJ1bigKICAgICAgICAgICAgWyJzeXN0ZW1jdGwiLCAiLS11c2VyIiwgImlzLWFjdGl2ZSIsICJoZXJtZXMtZ2F0ZXdheSJdLAogICAgICAgICAgICBjYXB0dXJlX291dHB1dD1UcnVlLAogICAgICAgICAgICB0ZXh0PVRydWUKICAgICAgICApCiAgICAgICAgaXNfYWN0aXZlID0gcmVzdWx0LnN0ZG91dC5zdHJpcCgpID09ICJhY3RpdmUiCiAgICAgICAgcHJpbnQoZiIgIFN0YXR1czogICAgICAge2NoZWNrX21hcmsoaXNfYWN0aXZlKX0geydydW5uaW5nJyBpZiBpc19hY3RpdmUgZWxzZSAnc3RvcHBlZCd9IikKICAgICAgICBwcmludChmIiAgTWFuYWdlcjogICAgICBzeXN0ZW1kICh1c2VyKSIpIiIiCm5ldyA9ICIiIiAgICBpZiBzeXMucGxhdGZvcm0uc3RhcnRzd2l0aCgnbGludXgnKToKICAgICAgICB0cnk6CiAgICAgICAgICAgIHJlc3VsdCA9IHN1YnByb2Nlc3MucnVuKAogICAgICAgICAgICAgICAgWyJzeXN0ZW1jdGwiLCAiLS11c2VyIiwgImlzLWFjdGl2ZSIsICJoZXJtZXMtZ2F0ZXdheSJdLAogICAgICAgICAgICAgICAgY2FwdHVyZV9vdXRwdXQ9VHJ1ZSwKICAgICAgICAgICAgICAgIHRleHQ9VHJ1ZQogICAgICAgICAgICApCiAgICAgICAgICAgIGlzX2FjdGl2ZSA9IHJlc3VsdC5zdGRvdXQuc3RyaXAoKSA9PSAiYWN0aXZlIgogICAgICAgICAgICBwcmludChmIiAgU3RhdHVzOiAgICAgICB7Y2hlY2tfbWFyayhpc19hY3RpdmUpfSB7J3J1bm5pbmcnIGlmIGlzX2FjdGl2ZSBlbHNlICdzdG9wcGVkJ30iKQogICAgICAgICAgICBwcmludChmIiAgTWFuYWdlcjogICAgICBzeXN0ZW1kICh1c2VyKSIpCiAgICAgICAgZXhjZXB0IEZpbGVOb3RGb3VuZEVycm9yOgogICAgICAgICAgICBwcmludCgiICBTdGF0dXM6ICAgICAgICh1bmtub3duIC0gc3lzdGVtY3RsIG5vdCBhdmFpbGFibGUpIikKICAgICAgICAgICAgcHJpbnQoIiAgTWFuYWdlcjogICAgICAobm8gaW5pdCBzeXN0ZW0pIikiIiIKaWYgb2xkIG5vdCBpbiBzcmM6CiAgICBwcmludCgiU0tJUDogYWxyZWFkeSBwYXRjaGVkIG9yIGNoYW5nZWQgdXBzdHJlYW0iKTsgZXhpdCgwKQpwLndyaXRlX3RleHQoc3JjLnJlcGxhY2Uob2xkLCBuZXcpKQpwcmludCgiUEFUQ0hFRDogaGVybWVzX2NsaS9zdGF0dXMucHkiKQo=' | base64 -d | python3
+        RUN npm install --omit=dev
+        RUN /root/.local/bin/uv venv .venv --python 3.11
+        ENV VIRTUAL_ENV=/app/.venv
+        ENV PATH="/app/.venv/bin:$PATH"
+        RUN /root/.local/bin/uv pip install -e ".[all]" || /root/.local/bin/uv pip install -e "."
+        RUN if [ -f "mini-swe-agent/pyproject.toml" ]; then /root/.local/bin/uv pip install -e "./mini-swe-agent"; fi && \
+            if [ -f "tinker-atropos/pyproject.toml" ]; then /root/.local/bin/uv pip install -e "./tinker-atropos"; fi
+        RUN mkdir -p /root/.hermes/{skills,memory,memories,logs,sessions,cron,pairing,hooks,image_cache,audio_cache} && \
+            (./.venv/bin/python tools/skills_sync.py 2>/dev/null || \
+             ([ -d "skills" ] && cp -rn skills/* /root/.hermes/skills/ 2>/dev/null || true))
+        CMD ["/app/.venv/bin/python", "-m", "gateway.run"]
+      args:
+        HERMES_REF: ${HERMES_REF:-main}
+    volumes:
+      - hermes-data:/root/.hermes
+    environment:
+      # =================================================================
+      # LLM PROVIDER — pick ONE of the options below
+      # =================================================================
+      #
+      # Option A: OpenRouter (default)
+      #   Set OPENROUTER_API_KEY. Leave OPENAI_BASE_URL empty.
+      #
+      # Option B: Custom OpenAI-compatible provider
+      #   Set OPENAI_BASE_URL + OPENAI_API_KEY. Leave OPENROUTER_API_KEY empty.
+      #   Examples: vLLM, Ollama, LiteLLM proxy, Together, Groq, local llama.cpp
+      #
+      # =================================================================
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-opus-4.6}
+
+      # Alternative built-in providers (optional)
+      - GLM_API_KEY=${GLM_API_KEY:-}
+      - GLM_BASE_URL=${GLM_BASE_URL:-}
+      - KIMI_API_KEY=${KIMI_API_KEY:-}
+      - KIMI_BASE_URL=${KIMI_BASE_URL:-}
+      - MINIMAX_API_KEY=${MINIMAX_API_KEY:-}
+      - MINIMAX_BASE_URL=${MINIMAX_BASE_URL:-}
+
+      # =================================================================
+      # TOOL API KEYS (optional)
+      # =================================================================
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - FAL_KEY=${FAL_KEY:-}
+      - HONCHO_API_KEY=${HONCHO_API_KEY:-}
+      - VOICE_TOOLS_OPENAI_KEY=${VOICE_TOOLS_OPENAI_KEY:-}
+
+      # =================================================================
+      # BROWSER AUTOMATION (optional)
+      # =================================================================
+      - BROWSERBASE_API_KEY=${BROWSERBASE_API_KEY:-}
+      - BROWSERBASE_PROJECT_ID=${BROWSERBASE_PROJECT_ID:-}
+      - BROWSERBASE_PROXIES=${BROWSERBASE_PROXIES:-true}
+      - BROWSERBASE_ADVANCED_STEALTH=${BROWSERBASE_ADVANCED_STEALTH:-false}
+      - BROWSER_SESSION_TIMEOUT=${BROWSER_SESSION_TIMEOUT:-300}
+      - BROWSER_INACTIVITY_TIMEOUT=${BROWSER_INACTIVITY_TIMEOUT:-120}
+
+      # =================================================================
+      # MESSAGING PLATFORMS (configure at least one)
+      # =================================================================
+      # Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS:-}
+      - TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL:-}
+      - TELEGRAM_HOME_CHANNEL_NAME=${TELEGRAM_HOME_CHANNEL_NAME:-}
+
+      # Discord
+      - DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN:-}
+      - DISCORD_ALLOWED_USERS=${DISCORD_ALLOWED_USERS:-}
+      - DISCORD_HOME_CHANNEL=${DISCORD_HOME_CHANNEL:-}
+      - DISCORD_HOME_CHANNEL_NAME=${DISCORD_HOME_CHANNEL_NAME:-}
+
+      # Slack
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_APP_TOKEN=${SLACK_APP_TOKEN:-}
+      - SLACK_ALLOWED_USERS=${SLACK_ALLOWED_USERS:-}
+      - SLACK_HOME_CHANNEL=${SLACK_HOME_CHANNEL:-}
+
+      # WhatsApp
+      - WHATSAPP_ENABLED=${WHATSAPP_ENABLED:-false}
+      - WHATSAPP_ALLOWED_USERS=${WHATSAPP_ALLOWED_USERS:-}
+
+      # Signal
+      - SIGNAL_HTTP_URL=${SIGNAL_HTTP_URL:-}
+      - SIGNAL_ACCOUNT=${SIGNAL_ACCOUNT:-}
+      - SIGNAL_ALLOWED_USERS=${SIGNAL_ALLOWED_USERS:-}
+      - SIGNAL_HOME_CHANNEL=${SIGNAL_HOME_CHANNEL:-}
+      - SIGNAL_GROUP_ALLOWED_USERS=${SIGNAL_GROUP_ALLOWED_USERS:-}
+
+      # Home Assistant
+      - HASS_TOKEN=${HASS_TOKEN:-}
+      - HASS_URL=${HASS_URL:-}
+
+      # Gateway-wide allow all users (default: deny)
+      - GATEWAY_ALLOW_ALL_USERS=${GATEWAY_ALLOW_ALL_USERS:-false}
+
+      # =================================================================
+      # TERMINAL BACKEND
+      # =================================================================
+      - TERMINAL_ENV=${TERMINAL_ENV:-local}
+      - TERMINAL_TIMEOUT=${TERMINAL_TIMEOUT:-60}
+      - TERMINAL_LIFETIME_SECONDS=${TERMINAL_LIFETIME_SECONDS:-300}
+      - TERMINAL_CWD=${TERMINAL_CWD:-/root}
+      - TERMINAL_SSH_HOST=${TERMINAL_SSH_HOST:-}
+      - TERMINAL_SSH_USER=${TERMINAL_SSH_USER:-}
+      - TERMINAL_SSH_PORT=${TERMINAL_SSH_PORT:-22}
+      - TERMINAL_SSH_KEY=${TERMINAL_SSH_KEY:-}
+
+      # =================================================================
+      # AGENT SETTINGS
+      # =================================================================
+      - HERMES_MAX_ITERATIONS=${HERMES_MAX_ITERATIONS:-90}
+      - HERMES_INFERENCE_PROVIDER=${HERMES_INFERENCE_PROVIDER:-}
+      - CONTEXT_COMPRESSION_ENABLED=${CONTEXT_COMPRESSION_ENABLED:-true}
+      - CONTEXT_COMPRESSION_THRESHOLD=${CONTEXT_COMPRESSION_THRESHOLD:-0.85}
+      - HERMES_HUMAN_DELAY_MODE=${HERMES_HUMAN_DELAY_MODE:-off}
+      - HERMES_HUMAN_DELAY_MIN_MS=${HERMES_HUMAN_DELAY_MIN_MS:-800}
+      - HERMES_HUMAN_DELAY_MAX_MS=${HERMES_HUMAN_DELAY_MAX_MS:-2500}
+
+      # =================================================================
+      # OPTIONAL INTEGRATIONS
+      # =================================================================
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - TINKER_API_KEY=${TINKER_API_KEY:-}
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+
+      # =================================================================
+      # DEBUG
+      # =================================================================
+      - WEB_TOOLS_DEBUG=${WEB_TOOLS_DEBUG:-false}
+      - VISION_TOOLS_DEBUG=${VISION_TOOLS_DEBUG:-false}
+      - MOA_TOOLS_DEBUG=${MOA_TOOLS_DEBUG:-false}
+      - IMAGE_TOOLS_DEBUG=${IMAGE_TOOLS_DEBUG:-false}
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import hermes_cli; print('ok')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+volumes:
+  hermes-data:
