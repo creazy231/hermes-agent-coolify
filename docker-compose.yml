@@ -25,6 +25,10 @@ services:
             https://github.com/NousResearch/hermes-agent.git .
         # Patch status.py: wrap systemctl call in try/except for containers
         RUN echo 'aW1wb3J0IHBhdGhsaWIKcCA9IHBhdGhsaWIuUGF0aCgiaGVybWVzX2NsaS9zdGF0dXMucHkiKQppZiBub3QgcC5leGlzdHMoKToKICAgIHByaW50KCJTS0lQOiBub3QgZm91bmQiKTsgZXhpdCgwKQpzcmMgPSBwLnJlYWRfdGV4dCgpCm9sZCA9ICIiIiAgICBpZiBzeXMucGxhdGZvcm0uc3RhcnRzd2l0aCgnbGludXgnKToKICAgICAgICByZXN1bHQgPSBzdWJwcm9jZXNzLnJ1bigKICAgICAgICAgICAgWyJzeXN0ZW1jdGwiLCAiLS11c2VyIiwgImlzLWFjdGl2ZSIsICJoZXJtZXMtZ2F0ZXdheSJdLAogICAgICAgICAgICBjYXB0dXJlX291dHB1dD1UcnVlLAogICAgICAgICAgICB0ZXh0PVRydWUKICAgICAgICApCiAgICAgICAgaXNfYWN0aXZlID0gcmVzdWx0LnN0ZG91dC5zdHJpcCgpID09ICJhY3RpdmUiCiAgICAgICAgcHJpbnQoZiIgIFN0YXR1czogICAgICAge2NoZWNrX21hcmsoaXNfYWN0aXZlKX0geydydW5uaW5nJyBpZiBpc19hY3RpdmUgZWxzZSAnc3RvcHBlZCd9IikKICAgICAgICBwcmludChmIiAgTWFuYWdlcjogICAgICBzeXN0ZW1kICh1c2VyKSIpIiIiCm5ldyA9ICIiIiAgICBpZiBzeXMucGxhdGZvcm0uc3RhcnRzd2l0aCgnbGludXgnKToKICAgICAgICB0cnk6CiAgICAgICAgICAgIHJlc3VsdCA9IHN1YnByb2Nlc3MucnVuKAogICAgICAgICAgICAgICAgWyJzeXN0ZW1jdGwiLCAiLS11c2VyIiwgImlzLWFjdGl2ZSIsICJoZXJtZXMtZ2F0ZXdheSJdLAogICAgICAgICAgICAgICAgY2FwdHVyZV9vdXRwdXQ9VHJ1ZSwKICAgICAgICAgICAgICAgIHRleHQ9VHJ1ZQogICAgICAgICAgICApCiAgICAgICAgICAgIGlzX2FjdGl2ZSA9IHJlc3VsdC5zdGRvdXQuc3RyaXAoKSA9PSAiYWN0aXZlIgogICAgICAgICAgICBwcmludChmIiAgU3RhdHVzOiAgICAgICB7Y2hlY2tfbWFyayhpc19hY3RpdmUpfSB7J3J1bm5pbmcnIGlmIGlzX2FjdGl2ZSBlbHNlICdzdG9wcGVkJ30iKQogICAgICAgICAgICBwcmludChmIiAgTWFuYWdlcjogICAgICBzeXN0ZW1kICh1c2VyKSIpCiAgICAgICAgZXhjZXB0IEZpbGVOb3RGb3VuZEVycm9yOgogICAgICAgICAgICBwcmludCgiICBTdGF0dXM6ICAgICAgICh1bmtub3duIC0gc3lzdGVtY3RsIG5vdCBhdmFpbGFibGUpIikKICAgICAgICAgICAgcHJpbnQoIiAgTWFuYWdlcjogICAgICAobm8gaW5pdCBzeXN0ZW0pIikiIiIKaWYgb2xkIG5vdCBpbiBzcmM6CiAgICBwcmludCgiU0tJUDogYWxyZWFkeSBwYXRjaGVkIG9yIGNoYW5nZWQgdXBzdHJlYW0iKTsgZXhpdCgwKQpwLndyaXRlX3RleHQoc3JjLnJlcGxhY2Uob2xkLCBuZXcpKQpwcmludCgiUEFUQ0hFRDogaGVybWVzX2NsaS9zdGF0dXMucHkiKQo=' | base64 -d | python3
+        # Patch gateway/platforms/base.py: fix typing indicator crash (add **kwargs)
+        RUN sed -i 's/async def _keep_typing(self, chat_id: str, interval: float = 2.0) -> None:/async def _keep_typing(self, chat_id: str, interval: float = 2.0, **kwargs) -> None:/' gateway/platforms/base.py && \
+            sed -i 's/await self.send_typing(chat_id)/await self.send_typing(chat_id, **kwargs)/' gateway/platforms/base.py && \
+            sed -i 's/async def send_typing(self, chat_id: str) -> None:/async def send_typing(self, chat_id: str, **kwargs) -> None:/' gateway/platforms/base.py
         RUN npm install --omit=dev
         RUN /root/.local/bin/uv venv .venv --python 3.11
         ENV VIRTUAL_ENV=/app/.venv
@@ -32,7 +36,8 @@ services:
         RUN /root/.local/bin/uv pip install -e ".[all]" || /root/.local/bin/uv pip install -e "."
         RUN if [ -f "mini-swe-agent/pyproject.toml" ]; then /root/.local/bin/uv pip install -e "./mini-swe-agent"; fi && \
             if [ -f "tinker-atropos/pyproject.toml" ]; then /root/.local/bin/uv pip install -e "./tinker-atropos"; fi
-        RUN mkdir -p /root/.hermes/{skills,memory,memories,logs,sessions,cron,pairing,hooks,image_cache,audio_cache} && \
+        RUN mkdir -p /root/workspace && \
+            mkdir -p /root/.hermes/{skills,memory,memories,logs,sessions,cron,pairing,hooks,image_cache,audio_cache} && \
             (./.venv/bin/python tools/skills_sync.py 2>/dev/null || \
              ([ -d "skills" ] && cp -rn skills/* /root/.hermes/skills/ 2>/dev/null || true))
         CMD ["/app/.venv/bin/python", "-m", "gateway.run"]
@@ -40,6 +45,7 @@ services:
         HERMES_REF: ${HERMES_REF:-main}
     volumes:
       - hermes-data:/root/.hermes
+      - hermes-workspace:/root/workspace
     environment:
       # =================================================================
       # LLM PROVIDER — pick ONE of the options below
@@ -70,8 +76,10 @@ services:
       # TOOL API KEYS (optional)
       # =================================================================
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - FIRECRAWL_API_URL=${FIRECRAWL_API_URL:-}
       - FAL_KEY=${FAL_KEY:-}
       - HONCHO_API_KEY=${HONCHO_API_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
       - VOICE_TOOLS_OPENAI_KEY=${VOICE_TOOLS_OPENAI_KEY:-}
 
       # =================================================================
@@ -129,7 +137,8 @@ services:
       - TERMINAL_ENV=${TERMINAL_ENV:-local}
       - TERMINAL_TIMEOUT=${TERMINAL_TIMEOUT:-60}
       - TERMINAL_LIFETIME_SECONDS=${TERMINAL_LIFETIME_SECONDS:-300}
-      - TERMINAL_CWD=${TERMINAL_CWD:-/root}
+      - TERMINAL_CWD=${TERMINAL_CWD:-/root/workspace}
+      - MESSAGING_CWD=${MESSAGING_CWD:-/root/workspace}
       - TERMINAL_SSH_HOST=${TERMINAL_SSH_HOST:-}
       - TERMINAL_SSH_USER=${TERMINAL_SSH_USER:-}
       - TERMINAL_SSH_PORT=${TERMINAL_SSH_PORT:-22}
@@ -145,6 +154,16 @@ services:
       - HERMES_HUMAN_DELAY_MODE=${HERMES_HUMAN_DELAY_MODE:-off}
       - HERMES_HUMAN_DELAY_MIN_MS=${HERMES_HUMAN_DELAY_MIN_MS:-800}
       - HERMES_HUMAN_DELAY_MAX_MS=${HERMES_HUMAN_DELAY_MAX_MS:-2500}
+
+      # =================================================================
+      # AUXILIARY MODEL OVERRIDES (optional)
+      # =================================================================
+      - AUXILIARY_VISION_PROVIDER=${AUXILIARY_VISION_PROVIDER:-}
+      - AUXILIARY_VISION_MODEL=${AUXILIARY_VISION_MODEL:-}
+      - AUXILIARY_WEB_EXTRACT_PROVIDER=${AUXILIARY_WEB_EXTRACT_PROVIDER:-}
+      - AUXILIARY_WEB_EXTRACT_MODEL=${AUXILIARY_WEB_EXTRACT_MODEL:-}
+      - CONTEXT_COMPRESSION_PROVIDER=${CONTEXT_COMPRESSION_PROVIDER:-}
+      - CONTEXT_COMPRESSION_MODEL=${CONTEXT_COMPRESSION_MODEL:-}
 
       # =================================================================
       # OPTIONAL INTEGRATIONS
@@ -171,3 +190,4 @@ services:
 
 volumes:
   hermes-data:
+  hermes-workspace:
